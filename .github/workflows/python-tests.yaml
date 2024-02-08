@@ -185,11 +185,12 @@ jobs:
         # Parallelize tests by scope to reduce expensive service fixture duplication
         # Do not allow the test suite to build images, as we want the prebuilt images to be tested
         # Do not run Kubernetes service tests, we do not have a cluster available
+        # maxprocesses 6 is based on empirical testing; higher than 6 sees diminishing returns
       - name: Run tests
         run: >
           pytest tests
           --numprocesses auto
-          --maxprocesses 8
+          --maxprocesses 6
           --dist loadscope
           --disable-docker-image-builds
           --exclude-service kubernetes
@@ -260,6 +261,7 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.ENGINEERING_REVIEW_SLACK_WEBHOOK_URL }}
 
   run-tests-for-datadog:
+    name: DataDog CI Visibility
     runs-on:
       group: oss-larger-runners
     strategy:
@@ -370,13 +372,11 @@ jobs:
 
           echo "PREFECT_API_DATABASE_CONNECTION_URL=postgresql+asyncpg://prefect:prefect@localhost/prefect" >> $GITHUB_ENV
 
-        # Runs the test with || true to ensure the job does not fail if the tests
-        # fail, because we're sending the results to DataDog
       - name: Run tests
         run: >
           pytest tests
           --numprocesses auto
-          --maxprocesses 8
+          --maxprocesses 6
           --ddtrace
           --dist loadscope
           --disable-docker-image-builds
@@ -384,7 +384,6 @@ jobs:
           --durations 26
           --cov
           --cov-config setup.cfg
-          || true
         env:
           DD_CIVISIBILITY_AGENTLESS_ENABLED: true
           DD_API_KEY: ${{ secrets.DD_API_KEY_CI_VISIBILITY }}
