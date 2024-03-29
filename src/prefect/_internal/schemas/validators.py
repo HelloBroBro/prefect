@@ -2,6 +2,8 @@ import datetime
 import json
 import logging
 import re
+import urllib.parse
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import jsonschema
@@ -9,8 +11,10 @@ import pendulum
 
 from prefect._internal.pydantic import HAS_PYDANTIC_V2
 from prefect._internal.schemas.fields import DateTimeTZ
-from prefect.exceptions import InvalidNameError
+from prefect.exceptions import InvalidNameError, InvalidRepositoryURLError
 from prefect.utilities.annotations import NotSet
+from prefect.utilities.importtools import from_qualified_name
+from prefect.utilities.names import generate_slug
 from prefect.utilities.pydantic import JsonPatch
 
 BANNED_CHARACTERS = ["/", "%", "&", ">", "<"]
@@ -28,20 +32,26 @@ if TYPE_CHECKING:
         from pydantic.fields import ModelField
 
 
-def raise_on_name_with_banned_characters(name: str) -> None:
+def raise_on_name_with_banned_characters(name: str) -> str:
     """
     Raise an InvalidNameError if the given name contains any invalid
     characters.
     """
-    if any(c in name for c in BANNED_CHARACTERS):
-        raise InvalidNameError(
-            f"Name {name!r} contains an invalid character. "
-            f"Must not contain any of: {BANNED_CHARACTERS}."
-        )
+    if name is not None:
+        if any(c in name for c in BANNED_CHARACTERS):
+            raise InvalidNameError(
+                f"Name {name!r} contains an invalid character. "
+                f"Must not contain any of: {BANNED_CHARACTERS}."
+            )
+    return name
 
 
-def raise_on_name_alphanumeric_dashes_only(value, field_name: str = "value"):
-    if not bool(re.match(LOWERCASE_LETTERS_NUMBERS_AND_DASHES_ONLY_REGEX, value)):
+def raise_on_name_alphanumeric_dashes_only(
+    value: Optional[str], field_name: str = "value"
+):
+    if value and not bool(
+        re.match(LOWERCASE_LETTERS_NUMBERS_AND_DASHES_ONLY_REGEX, value)
+    ):
         raise ValueError(
             f"{field_name} must only contain lowercase letters, numbers, and dashes."
         )
@@ -461,3 +471,139 @@ def set_default_image(values: dict) -> dict:
         values["image"] = get_prefect_image_name()
 
     return values
+
+
+def get_or_create_state_name(v: str, values: dict) -> str:
+    """If a name is not provided, use the type"""
+
+    # if `type` is not in `values` it means the `type` didn't pass its own
+    # validation check and an error will be raised after this function is called
+    if v is None and values.get("type"):
+        v = " ".join([v.capitalize() for v in values.get("type").value.split("_")])
+    return v
+
+
+def get_or_create_run_name(name):
+    return name or generate_slug(2)
+
+
+### FILESYSTEM SCHEMA VALIDATORS ###
+
+
+def stringify_path(value: Union[str, Path]) -> str:
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def validate_basepath(value: str) -> str:
+    scheme, netloc, _, _, _ = urllib.parse.urlsplit(value)
+
+    if not scheme:
+        raise ValueError(f"Base path must start with a scheme. Got {value!r}.")
+
+    if not netloc:
+        raise ValueError(
+            f"Base path must include a location after the scheme. Got {value!r}."
+        )
+
+    if scheme == "file":
+        raise ValueError(
+            "Base path scheme cannot be 'file'. Use `LocalFileSystem` instead for"
+            " local file access."
+        )
+
+    return value
+
+
+def validate_github_access_token(v: str, values: dict) -> str:
+    """Ensure that credentials are not provided with 'SSH' formatted GitHub URLs.
+
+    Note: validates `access_token` specifically so that it only fires when
+    private repositories are used.
+    """
+    if v is not None:
+        if urllib.parse.urlparse(values["repository"]).scheme != "https":
+            raise InvalidRepositoryURLError(
+                "Crendentials can only be used with GitHub repositories "
+                "using the 'HTTPS' format. You must either remove the "
+                "credential if you wish to use the 'SSH' format and are not "
+                "using a private repository, or you must change the repository "
+                "URL to the 'HTTPS' format. "
+            )
+
+    return v
+
+
+### SERIALIZER SCHEMA VALIDATORS ###
+
+
+def validate_picklelib(value: str) -> str:
+    """
+    Check that the given pickle library is importable and has dumps/loads methods.
+    """
+    try:
+        pickler = from_qualified_name(value)
+    except (ImportError, AttributeError) as exc:
+        raise ValueError(
+            f"Failed to import requested pickle library: {value!r}."
+        ) from exc
+
+    if not callable(getattr(pickler, "dumps", None)):
+        raise ValueError(f"Pickle library at {value!r} does not have a 'dumps' method.")
+
+    if not callable(getattr(pickler, "loads", None)):
+        raise ValueError(f"Pickle library at {value!r} does not have a 'loads' method.")
+
+    return value
+
+
+def validate_dump_kwargs(value: dict) -> dict:
+    # `default` is set by `object_encoder`. A user provided callable would make this
+    # class unserializable anyway.
+    if "default" in value:
+        raise ValueError("`default` cannot be provided. Use `object_encoder` instead.")
+    return value
+
+
+def validate_load_kwargs(value: dict) -> dict:
+    # `object_hook` is set by `object_decoder`. A user provided callable would make
+    # this class unserializable anyway.
+    if "object_hook" in value:
+        raise ValueError(
+            "`object_hook` cannot be provided. Use `object_decoder` instead."
+        )
+    return value
+
+
+def cast_type_names_to_serializers(value):
+    from prefect.serializers import Serializer
+
+    if isinstance(value, str):
+        return Serializer(type=value)
+    return value
+
+
+def validate_compressionlib(value: str) -> str:
+    """
+    Check that the given pickle library is importable and has compress/decompress
+    methods.
+    """
+    try:
+        compressor = from_qualified_name(value)
+    except (ImportError, AttributeError) as exc:
+        raise ValueError(
+            f"Failed to import requested compression library: {value!r}."
+        ) from exc
+
+    if not callable(getattr(compressor, "compress", None)):
+        raise ValueError(
+            f"Compression library at {value!r} does not have a 'compress' method."
+        )
+
+    if not callable(getattr(compressor, "decompress", None)):
+        raise ValueError(
+            f"Compression library at {value!r} does not have a 'decompress' method."
+        )
+
+    return value
