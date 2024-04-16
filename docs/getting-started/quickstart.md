@@ -11,7 +11,7 @@ search:
 
 # Quickstart
 
-Prefect is an orchestration and observability platform that empowers developers to build and scale resilient code quickly, turning their Python scripts into resilient, recurring workflows.
+Prefect is an orchestration and observability platform that empowers developers to build and scale code quickly, turning their Python scripts into resilient, recurring workflows.
 
 In this quickstart, you'll see how you can schedule your code on remote infrastructure and observe the state of your workflows.
 With Prefect, you can go from a Python script to a production-ready workflow that runs remotely in a few minutes.
@@ -49,7 +49,7 @@ See the [install guide](/getting-started/installation/) for more detailed instal
 ## Step 2: Connect to Prefect's API
 
 Much of Prefect's functionality is backed by an API.
-Sign up for a forever free [Prefect Cloud account](/cloud/) or accept your organization's invite to join their Prefect Cloud account.
+Sign up for a forever-free [Prefect Cloud account](/cloud/) or accept your organization's invite to join their Prefect Cloud account.
 
 1. Create a new account or sign in at [https://app.prefect.cloud/](https://app.prefect.cloud/).
 1. Use the `prefect cloud login` CLI command to [log in to Prefect Cloud](/cloud/users/api-keys) from your environment.
@@ -171,7 +171,7 @@ prefect work-pool create my-managed-pool --type prefect:managed
 You should see a message in the CLI that your work pool was created.
 Feel free to check out your new work pool on the **Work Pools** page in the UI.
 
-## Step 4: Make your code schedulable
+## Step 5: Make your code schedulable
 
 We have a flow function and we have a work pool where we can run our flow remotely.
 Let's package both of these things, along with the location for where to find our flow code, into a [deployment](/concepts/deployments/) so that we can schedule our workflow to run remotely.
