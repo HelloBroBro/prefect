@@ -9,6 +9,7 @@ from prefect._vendor.starlette.status import (
 )
 from prefect._vendor.starlette.testclient import TestClient
 from prefect._vendor.starlette.websockets import WebSocketDisconnect
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from prefect.server.events.filters import (
     EventFilter,
@@ -16,6 +17,13 @@ from prefect.server.events.filters import (
 )
 from prefect.server.events.schemas.events import ReceivedEvent
 from prefect.server.events.storage import database
+from prefect.settings import PREFECT_EXPERIMENTAL_EVENTS, temporary_settings
+
+
+@pytest.fixture(autouse=True)
+def enable_events():
+    with temporary_settings({PREFECT_EXPERIMENTAL_EVENTS: True}):
+        yield
 
 
 @pytest.fixture
@@ -52,7 +60,7 @@ def backfill_mock(
         filter: EventFilter,
         page_size: int = 0,
     ) -> Tuple[List[ReceivedEvent], Any, Any]:
-        assert session is None
+        assert isinstance(session, AsyncSession)
 
         assert isinstance(filter, EventFilter)
 

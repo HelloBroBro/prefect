@@ -20,6 +20,7 @@ from prefect.server.events.counting import (
     TimeUnit,
 )
 from prefect.server.events.filters import EventFilter
+from prefect.server.events.models.automations import automations_session
 from prefect.server.events.schemas.events import Event, EventCount, EventPage
 from prefect.server.events.storage import (
     INTERACTIVE_PAGE_SIZE,
@@ -28,11 +29,24 @@ from prefect.server.events.storage import (
 )
 from prefect.server.utilities import subscriptions
 from prefect.server.utilities.server import PrefectRouter
+from prefect.settings import PREFECT_EXPERIMENTAL_EVENTS
 
 logger = get_logger(__name__)
 
 
-router = PrefectRouter(prefix="/events", tags=["Events"])
+def events_enabled() -> bool:
+    if not PREFECT_EXPERIMENTAL_EVENTS:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Events are not enabled. Please enable the PREFECT_EXPERIMENTAL_EVENTS setting.",
+        )
+
+
+router = PrefectRouter(
+    prefix="/events",
+    tags=["Events"],
+    dependencies=[Depends(events_enabled)],
+)
 
 
 @router.post("", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
@@ -102,10 +116,12 @@ async def stream_workspace_events_out(
         async with stream.events(filter) as event_stream:
             # ...then if the user wants, backfill up to the last 1k events...
             if wants_backfill:
-                backfill, _, _ = await database.query_events(
-                    filter=filter,
-                    page_size=1000,
-                )
+                async with automations_session() as session:
+                    backfill, _, _ = await database.query_events(
+                        session=session,
+                        filter=filter,
+                        page_size=1000,
+                    )
 
                 backfilled_ids = set()
 
