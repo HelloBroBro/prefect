@@ -7,7 +7,6 @@ Module containing the base workflow task class and decorator - for most use case
 import datetime
 import inspect
 import os
-import warnings
 from copy import copy
 from functools import partial, update_wrapper
 from typing import (
@@ -332,33 +331,7 @@ class Task(Generic[P, R]):
         self.result_serializer = result_serializer
         self.result_storage_key = result_storage_key
         self.cache_result_in_memory = cache_result_in_memory
-
         self.timeout_seconds = float(timeout_seconds) if timeout_seconds else None
-        # Warn if this task's `name` conflicts with another task while having a
-        # different function. This is to detect the case where two or more tasks
-        # share a name or are lambdas, which should result in a warning, and to
-        # differentiate it from the case where the task was 'copied' via
-        # `with_options`, which should not result in a warning.
-        registry = PrefectObjectRegistry.get()
-
-        if registry and any(
-            other
-            for other in registry.get_instances(Task)
-            if other.name == self.name and id(other.fn) != id(self.fn)
-        ):
-            try:
-                file = inspect.getsourcefile(self.fn)
-                line_number = inspect.getsourcelines(self.fn)[1]
-            except TypeError:
-                file = "unknown"
-                line_number = "unknown"
-
-            warnings.warn(
-                f"A task named {self.name!r} and defined at '{file}:{line_number}' "
-                "conflicts with another task. Consider specifying a unique `name` "
-                "parameter in the task definition:\n\n "
-                "`@task(name='my_unique_name', ...)`"
-            )
         self.on_completion = on_completion
         self.on_failure = on_failure
 
@@ -637,9 +610,8 @@ class Task(Generic[P, R]):
                 self.isasync, self.name, parameters, self.viz_return_value
             )
 
-        # new engine currently only compatible with async tasks
         if PREFECT_EXPERIMENTAL_ENABLE_NEW_ENGINE.value():
-            from prefect.new_task_engine import run_task, run_task_sync
+            from prefect.new_task_engine import run_task_async, run_task_sync
 
             run_kwargs = dict(
                 task=self,
@@ -649,7 +621,7 @@ class Task(Generic[P, R]):
             )
             if self.isasync:
                 # this returns an awaitable coroutine
-                return run_task(**run_kwargs)
+                return run_task_async(**run_kwargs)
             else:
                 return run_task_sync(**run_kwargs)
 
@@ -931,7 +903,7 @@ class Task(Generic[P, R]):
         wait_for: Optional[Iterable[PrefectFuture]],
         return_state: bool,
     ):
-        from prefect.new_task_engine import run_task
+        from prefect.new_task_engine import run_task_async
 
         task_runner = flow_run_context.task_runner
 
@@ -952,7 +924,7 @@ class Task(Generic[P, R]):
         await task_runner.submit(
             key=future.key,
             call=partial(
-                run_task,
+                run_task_async,
                 task=self,
                 task_run=task_run,
                 parameters=parameters,
