@@ -14,7 +14,6 @@ from typing import (
     Any,
     Awaitable,
     Callable,
-    Coroutine,
     Dict,
     Generic,
     Iterable,
@@ -22,6 +21,7 @@ from typing import (
     NoReturn,
     Optional,
     Set,
+    Tuple,
     TypeVar,
     Union,
     cast,
@@ -50,7 +50,7 @@ from prefect.settings import (
 )
 from prefect.states import Pending, Scheduled, State
 from prefect.utilities.annotations import NotSet
-from prefect.utilities.asyncutils import Async, Sync, run_coro_as_sync
+from prefect.utilities.asyncutils import run_coro_as_sync
 from prefect.utilities.callables import (
     expand_mapping_parameters,
     get_call_parameters,
@@ -699,7 +699,7 @@ class Task(Generic[P, R]):
                 self.isasync, self.name, parameters, self.viz_return_value
             )
 
-        from prefect.new_task_engine import run_task
+        from prefect.task_engine import run_task
 
         return run_task(
             task=self,
@@ -713,32 +713,25 @@ class Task(Generic[P, R]):
         self: "Task[P, NoReturn]",
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> PrefectFuture[None, Sync]:
+    ) -> PrefectFuture:
         # `NoReturn` matches if a type can't be inferred for the function which stops a
         # sync function from matching the `Coroutine` overload
         ...
 
     @overload
     def submit(
-        self: "Task[P, Coroutine[Any, Any, T]]",
+        self: "Task[P, T]",
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> Awaitable[PrefectFuture[T, Async]]:
+    ) -> PrefectFuture:
         ...
 
     @overload
     def submit(
         self: "Task[P, T]",
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> PrefectFuture[T, Sync]:
-        ...
-
-    @overload
-    def submit(
-        self: "Task[P, T]",
-        *args: P.args,
         return_state: Literal[True],
+        wait_for: Optional[Iterable[PrefectFuture]] = None,
+        *args: P.args,
         **kwargs: P.kwargs,
     ) -> State[T]:
         ...
@@ -749,7 +742,7 @@ class Task(Generic[P, R]):
         return_state: bool = False,
         wait_for: Optional[Iterable[PrefectFuture]] = None,
         **kwargs: Any,
-    ) -> Union[PrefectFuture, Awaitable[PrefectFuture]]:
+    ):
         """
         Submit a run of the task to the engine.
 
@@ -757,9 +750,7 @@ class Task(Generic[P, R]):
 
         Will create a new task run in the backing API and submit the task to the flow's
         task runner. This call only blocks execution while the task is being submitted,
-        once it is submitted, the flow function will continue executing. However, note
-        that the `SequentialTaskRunner` does not implement parallel execution for sync tasks
-        and they are fully resolved on submission.
+        once it is submitted, the flow function will continue executing.
 
         Args:
             *args: Arguments to run the task with
@@ -870,32 +861,24 @@ class Task(Generic[P, R]):
         self: "Task[P, NoReturn]",
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> List[PrefectFuture[None, Sync]]:
+    ) -> List[PrefectFuture]:
         # `NoReturn` matches if a type can't be inferred for the function which stops a
         # sync function from matching the `Coroutine` overload
         ...
 
     @overload
     def map(
-        self: "Task[P, Coroutine[Any, Any, T]]",
+        self: "Task[P, T]",
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> Awaitable[List[PrefectFuture[T, Async]]]:
+    ) -> List[PrefectFuture]:
         ...
 
     @overload
     def map(
         self: "Task[P, T]",
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> List[PrefectFuture[T, Sync]]:
-        ...
-
-    @overload
-    def map(
-        self: "Task[P, T]",
-        *args: P.args,
         return_state: Literal[True],
+        *args: P.args,
         **kwargs: P.kwargs,
     ) -> List[State[T]]:
         ...
@@ -906,7 +889,7 @@ class Task(Generic[P, R]):
         return_state: bool = False,
         wait_for: Optional[Iterable[PrefectFuture]] = None,
         **kwargs: Any,
-    ) -> Any:
+    ):
         """
         Submit a mapped run of the task to a worker.
 
@@ -921,9 +904,7 @@ class Task(Generic[P, R]):
         backing API and submit the task runs to the flow's task runner. This
         call blocks if given a future as input while the future is resolved. It
         also blocks while the tasks are being submitted, once they are
-        submitted, the flow function will continue executing. However, note
-        that the `SequentialTaskRunner` does not implement parallel execution
-        for sync tasks and they are fully resolved on submission.
+        submitted, the flow function will continue executing.
 
         Args:
             *args: Iterable and static arguments to run the tasks with
@@ -1047,7 +1028,7 @@ class Task(Generic[P, R]):
                 for parameters in parameters_list
             ]
 
-        from prefect.new_task_runners import TaskRunner
+        from prefect.task_runners import TaskRunner
 
         task_runner = flow_run_context.task_runner
         assert isinstance(task_runner, TaskRunner)
@@ -1063,17 +1044,15 @@ class Task(Generic[P, R]):
 
     def apply_async(
         self,
-        *args: Any,
-        **kwargs: Any,
+        args: Optional[Tuple[Any, ...]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
     ) -> TaskRun:
         """
         Create a pending task run for a task server to execute.
 
-        If writing an async task, this call must be awaited.
-
         Args:
-            *args: Arguments to run the task with
-            **kwargs: Keyword arguments to run the task with
+            args: Arguments to run the task with
+            kwargs: Keyword arguments to run the task with
 
         Returns:
             A TaskRun object representing the pending task run
@@ -1084,39 +1063,29 @@ class Task(Generic[P, R]):
 
             >>> from prefect import task
             >>> @task
-            >>> def my_task():
-            >>>     return "hello"
+            >>> def my_task(name: str = "world"):
+            >>>     return f"hello {name}"
 
             Create a pending task run for the task
 
             >>> from prefect import flow
             >>> @flow
             >>> def my_flow():
-            >>>     my_task.apply_async()
+            >>>     my_task.apply_async(("marvin",))
 
             TODO: Wait for a task to finish
 
             >>> @flow
             >>> def my_flow():
-            >>>     my_task.apply_async().wait()  # <- This is not implemented
+            >>>     my_task.apply_async(("marvin",)).wait()  # <- This is not implemented
 
 
             >>> @flow
             >>> def my_flow():
-            >>>     print(my_task.apply_async().result())  # <- This is not implemented
+            >>>     print(my_task.apply_async(("marvin",)).result())  # <- This is not implemented
             >>>
             >>> my_flow()
-            hello
-
-            Create a pendingn task in an async flow
-
-            >>> @task
-            >>> async def my_async_task():
-            >>>     pass
-            >>>
-            >>> @flow
-            >>> async def my_flow():
-            >>>     await my_async_task.apply_async()
+            hello marvin
 
             TODO: Enforce ordering between tasks that do not exchange data
             >>> @task
@@ -1145,6 +1114,8 @@ class Task(Generic[P, R]):
             raise VisualizationUnsupportedError(
                 "`task.apply_async()` is not currently supported by `flow.visualize()`"
             )
+        args = args or ()
+        kwargs = kwargs or {}
 
         # Convert the call args/kwargs to a parameter dict
         parameters = get_call_parameters(self.fn, args, kwargs)
