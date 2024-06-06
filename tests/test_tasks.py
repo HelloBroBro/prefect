@@ -29,6 +29,7 @@ from prefect.filesystems import LocalFileSystem
 from prefect.futures import PrefectDistributedFuture
 from prefect.futures import PrefectFuture as NewPrefectFuture
 from prefect.logging import get_run_logger
+from prefect.records.cache_policies import DEFAULT, TASKDEF
 from prefect.results import ResultFactory
 from prefect.runtime import task_run as task_run_ctx
 from prefect.server import models
@@ -4145,6 +4146,30 @@ class TestNestedTasks:
         assert result == 42
 
 
+class TestCachePolicies:
+    def test_cache_policy_init_to_default(self):
+        @task
+        def my_task():
+            pass
+
+        assert my_task.cache_policy is DEFAULT
+
+    def test_cache_policy_init_to_none_if_result_storage_key(self):
+        @task(result_storage_key="foo")
+        def my_task():
+            pass
+
+        assert my_task.cache_policy is None
+        assert my_task.result_storage_key == "foo"
+
+    def test_cache_policy_inits_as_expected(self):
+        @task(cache_policy=TASKDEF)
+        def my_task():
+            pass
+
+        assert my_task.cache_policy is TASKDEF
+
+
 class TestTransactions:
     def test_commit_hook_is_called_on_commit(self):
         data = {}
@@ -4293,7 +4318,7 @@ class TestApplyAsync:
             the_answer, future.state.state_details.task_parameters_id
         ) == {"wait_for": [wait_for_future], "context": ANY}
 
-    async def test_with_dependencies(self):
+    async def test_with_dependencies(self, prefect_client):
         task_run_id = uuid4()
 
         @task
@@ -4303,8 +4328,9 @@ class TestApplyAsync:
         future = add.apply_async(
             (42, 42), dependencies={"x": {TaskRunResult(id=task_run_id)}}
         )
+        task_run = await prefect_client.read_task_run(future.task_run_id)
 
-        assert future.task_run.task_inputs == {
+        assert task_run.task_inputs == {
             "x": [TaskRunResult(id=task_run_id)],
             "y": [],
         }
