@@ -77,7 +77,7 @@ from prefect.testing.utilities import (
     exceptions_equal,
     get_most_recent_flow_run,
 )
-from prefect.transactions import transaction
+from prefect.transactions import get_transaction, transaction
 from prefect.types.entrypoint import EntrypointType
 from prefect.utilities.annotations import allow_failure, quote
 from prefect.utilities.callables import parameter_schema
@@ -3902,7 +3902,6 @@ class TestFlowToDeployment:
                     {"interval": 3600},
                     {"cron": "* * * * *"},
                     {"rrule": "FREQ=MINUTELY"},
-                    {"schedule": CronSchedule(cron="* * * * *")},
                 ],
                 2,
             )
@@ -3912,7 +3911,9 @@ class TestFlowToDeployment:
         with warnings.catch_warnings():
             # `schedule` parameter is deprecated and will raise a warning
             warnings.filterwarnings("ignore", category=DeprecationWarning)
-            expected_message = "Only one of interval, cron, rrule, schedule, or schedules can be provided."
+            expected_message = (
+                "Only one of interval, cron, rrule, or schedules can be provided."
+            )
             with pytest.raises(ValueError, match=expected_message):
                 await self.flow.to_deployment(__file__, **kwargs)
 
@@ -3967,7 +3968,6 @@ class TestFlowServe:
         assert deployment.version == "alpha"
         assert deployment.enforce_parameter_schema
         assert deployment.paused
-        assert not deployment.is_schedule_active
 
     def test_serve_can_user_a_module_path_entrypoint(self, sync_prefect_client):
         deployment = self.flow.serve(
@@ -3997,8 +3997,11 @@ class TestFlowServe:
         deployment = sync_prefect_client.read_deployment_by_name(name="test-flow/test")
 
         assert deployment is not None
-        assert isinstance(deployment.schedule, IntervalSchedule)
-        assert deployment.schedule.interval == datetime.timedelta(seconds=3600)
+        assert len(deployment.schedules) == 1
+        assert isinstance(deployment.schedules[0].schedule, IntervalSchedule)
+        assert deployment.schedules[0].schedule.interval == datetime.timedelta(
+            seconds=3600
+        )
 
     def test_serve_creates_deployment_with_cron_schedule(
         self, sync_prefect_client: SyncPrefectClient
@@ -4008,7 +4011,8 @@ class TestFlowServe:
         deployment = sync_prefect_client.read_deployment_by_name(name="test-flow/test")
 
         assert deployment is not None
-        assert deployment.schedule == CronSchedule(cron="* * * * *")
+        assert len(deployment.schedules) == 1
+        assert deployment.schedules[0].schedule == CronSchedule(cron="* * * * *")
 
     def test_serve_creates_deployment_with_rrule_schedule(
         self, sync_prefect_client: SyncPrefectClient
@@ -4018,7 +4022,8 @@ class TestFlowServe:
         deployment = sync_prefect_client.read_deployment_by_name(name="test-flow/test")
 
         assert deployment is not None
-        assert deployment.schedule == RRuleSchedule(rrule="FREQ=MINUTELY")
+        assert len(deployment.schedules) == 1
+        assert deployment.schedules[0].schedule == RRuleSchedule(rrule="FREQ=MINUTELY")
 
     @pytest.mark.parametrize(
         "kwargs",
@@ -4029,7 +4034,6 @@ class TestFlowServe:
                     {"interval": 3600},
                     {"cron": "* * * * *"},
                     {"rrule": "FREQ=MINUTELY"},
-                    {"schedule": CronSchedule(cron="* * * * *")},
                 ],
                 2,
             )
@@ -4039,7 +4043,9 @@ class TestFlowServe:
         with warnings.catch_warnings():
             # `schedule` parameter is deprecated and will raise a warning
             warnings.filterwarnings("ignore", category=DeprecationWarning)
-            expected_message = "Only one of interval, cron, rrule, schedule, or schedules can be provided."
+            expected_message = (
+                "Only one of interval, cron, rrule, or schedules can be provided."
+            )
             with pytest.raises(ValueError, match=expected_message):
                 self.flow.serve(__file__, **kwargs)
 
@@ -4409,6 +4415,37 @@ class TestTransactions:
 
         assert data2["called"] is True
         assert data1["called"] is True
+
+    def test_isolated_shared_state_on_txn_between_tasks(self):
+        data1, data2 = {}, {}
+
+        @task
+        def task1():
+            get_transaction().set("task", 1)
+
+        @task1.on_rollback
+        def rollback(txn):
+            data1["hook"] = txn.get("task")
+
+        @task
+        def task2():
+            get_transaction().set("task", 2)
+
+        @task2.on_rollback
+        def rollback2(txn):
+            data2["hook"] = txn.get("task")
+
+        @flow
+        def main():
+            with transaction():
+                task1()
+                task2()
+                raise ValueError("oopsie")
+
+        main(return_state=True)
+
+        assert data2["hook"] == 2
+        assert data1["hook"] == 1
 
     def test_task_failure_causes_previous_to_rollback(self):
         data1, data2 = {}, {}
@@ -4898,8 +4935,8 @@ class TestSafeLoadFlowFromEntrypoint:
         source_code = dedent(
             """
         import pendulum
-        import datetime  
-        from prefect import flow               
+        import datetime
+        from prefect import flow
 
         @flow
         def f(
@@ -5027,7 +5064,7 @@ class TestSafeLoadFlowFromEntrypoint:
             def f(
                 param: Optional[MyModel] = None,
             ) -> None:
-                return MyModel()        
+                return MyModel()
             """
         )
         tmp_path.joinpath("test.py").write_text(source_code)
@@ -5046,7 +5083,7 @@ class TestSafeLoadFlowFromEntrypoint:
 
         @flow(description="Says woof!")
         def dog():
-            return not_a_function('dog')        
+            return not_a_function('dog')
             """
         )
 
