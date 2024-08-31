@@ -74,17 +74,16 @@
           "pages": [
             "3.0rc/develop/write-flows",
             "3.0rc/develop/write-tasks",
-            "3.0rc/develop/deferred-tasks",
-            "3.0rc/develop/logging"
+            "3.0rc/develop/deferred-tasks"
           ],
           "version": "3.0rc"
         },
         {
           "group": "Configure runtime behavior",
           "pages": [
+            "3.0rc/develop/logging",
             "3.0rc/develop/task-caching",
             "3.0rc/develop/transactions",
-            "3.0rc/develop/state-hooks",
             "3.0rc/develop/pause-resume",
             "3.0rc/develop/inputs",
             "3.0rc/develop/runtime-context"
@@ -94,12 +93,11 @@
         {
           "group": "Manage state and configuration",
           "pages": [
-            "3.0rc/develop/results",
             "3.0rc/develop/manage-states",
+            "3.0rc/develop/results",
             "3.0rc/develop/artifacts",
             "3.0rc/develop/variables",
-            "3.0rc/develop/blocks",
-            "3.0rc/develop/interact-with-data"
+            "3.0rc/develop/blocks"
           ],
           "version": "3.0rc"
         },
@@ -912,7 +910,7 @@
       "source": "/latest/community"
     },
     {
-      "destination": "/latest/develop/interact-with-data",
+      "destination": "/latest/develop/blocks",
       "source": "/latest/concepts/filesystems"
     },
     {
@@ -932,7 +930,7 @@
       "source": "/latest/api-ref/server"
     },
     {
-      "destination": "/latest/develop/interact-with-data",
+      "destination": "/latest/develop/blocks",
       "source": "/latest/guides/moving-data"
     },
     {
@@ -940,7 +938,7 @@
       "source": "/latest/guides/deployment/developing-a-new-worker-type"
     },
     {
-      "destination": "/latest/develop/state-hooks",
+      "destination": "/latest/develop/manage-states",
       "source": "/latest/guides/state-change-hooks"
     },
     {
