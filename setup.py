@@ -1,12 +1,21 @@
+from pathlib import Path
+
 import versioneer
 from setuptools import find_packages, setup
 
-client_requires = open("requirements-client.txt").read().strip().split("\n")
-# strip the first line since setup.py will not recognize '-r requirements-client.txt'
-install_requires = (
-    open("requirements.txt").read().strip().split("\n")[1:] + client_requires
-)
-dev_requires = open("requirements-dev.txt").read().strip().split("\n")
+
+def read_requirements(file):
+    requirements = []
+    if Path(file).exists():
+        requirements = open(file).read().strip().split("\n")
+    return requirements
+
+
+client_requires = read_requirements("requirements-client.txt")
+install_requires = read_requirements("requirements.txt")[1:] + client_requires
+dev_requires = read_requirements("requirements-dev.txt")
+markdown_requirements = read_requirements("requirements-markdown-tests.txt")
+markdown_tests_requires = dev_requires + markdown_requirements[1:]
 
 setup(
     # Package metadata
@@ -42,6 +51,7 @@ setup(
     install_requires=install_requires,
     extras_require={
         "dev": dev_requires,
+        "markdown-tests": markdown_tests_requires,
         # Infrastructure extras
         "aws": "prefect-aws>=0.5.0rc1",
         "azure": "prefect-azure>=0.4.0rc1",
