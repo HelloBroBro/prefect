@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pydantic
 import pytest
+import toml
 from pydantic_core import to_jsonable_python
 from sqlalchemy import make_url
 
@@ -51,6 +52,7 @@ from prefect.settings import (
     save_profiles,
     temporary_settings,
 )
+from prefect.utilities.filesystem import tmpchdir
 
 SUPPORTED_SETTINGS = {
     "PREFECT_API_BLOCKS_REGISTER_ON_START": {"test_value": True},
@@ -205,7 +207,7 @@ SUPPORTED_SETTINGS = {
         "test_value": timedelta(seconds=10)
     },
     "PREFECT_TEST_MODE": {"test_value": True},
-    "PREFECT_TEST_SETTING": {"test_value": "foo"},
+    "PREFECT_TEST_SETTING": {"test_value": "bar"},
     "PREFECT_UI_API_URL": {"test_value": "https://api.prefect.io"},
     "PREFECT_UI_ENABLED": {"test_value": True},
     "PREFECT_UI_SERVE_BASE": {"test_value": "/base"},
@@ -219,6 +221,20 @@ SUPPORTED_SETTINGS = {
     "PREFECT_WORKER_WEBSERVER_HOST": {"test_value": "host"},
     "PREFECT_WORKER_WEBSERVER_PORT": {"test_value": 8080},
 }
+
+
+@pytest.fixture
+def temporary_env_file(tmp_path):
+    with tmpchdir(tmp_path):
+        env_file = Path(".env")
+
+        def _create_temp_env(content):
+            env_file.write_text(content)
+
+        yield _create_temp_env
+
+        if env_file.exists():
+            env_file.unlink()
 
 
 class TestSettingClass:
@@ -813,25 +829,6 @@ class TestTemporarySettings:
 
 
 class TestSettingsSources:
-    @pytest.fixture
-    def temporary_env_file(self):
-        original_env_content = None
-        env_file = Path(".env")
-
-        if env_file.exists():
-            original_env_content = env_file.read_text()
-
-        def _create_temp_env(content):
-            env_file.write_text(content)
-
-        yield _create_temp_env
-
-        if env_file.exists():
-            env_file.unlink()
-
-        if original_env_content is not None:
-            env_file.write_text(original_env_content)
-
     def test_env_source(self, temporary_env_file):
         temporary_env_file("PREFECT_CLIENT_RETRY_EXTRA_CODES=420,500")
 
@@ -1312,52 +1309,98 @@ class TestProfilesCollection:
 
 
 class TestSettingValues:
-    @pytest.fixture(scope="function", params=list(SUPPORTED_SETTINGS.keys()))
-    def var_and_value(self, request):
-        var = request.param
-        return var, SUPPORTED_SETTINGS[var]["test_value"]
-
-    def test_set_via_env_var(self, var_and_value, monkeypatch):
+    @pytest.fixture(autouse=True)
+    def clear_env_vars(self, monkeypatch):
         for env_var in os.environ:
             if env_var.startswith("PREFECT_"):
                 monkeypatch.delenv(env_var, raising=False)
 
-        var, value = var_and_value
+    @pytest.fixture(scope="function", params=list(SUPPORTED_SETTINGS.keys()))
+    def setting_and_value(self, request):
+        setting = request.param
+        return setting, SUPPORTED_SETTINGS[setting]["test_value"]
 
-        if var == "PREFECT_TEST_SETTING":
-            monkeypatch.setenv("PREFECT_TEST_MODE", "True")
+    @pytest.fixture(autouse=True)
+    def temporary_profiles_path(self, tmp_path, monkeypatch):
+        path = tmp_path / "profiles.toml"
+        monkeypatch.setenv("PREFECT_PROFILES_PATH", str(path))
+        yield path
 
-        # mock set the env var
-        monkeypatch.setenv(var, str(value))
-
+    def check_setting_value(self, setting, value):
         # create new root context to pick up the env var changes
         warnings.filterwarnings("ignore", category=UserWarning)
         with prefect.context.root_settings_context():
-            field_name = env_var_to_attr_name(var)
+            field_name = env_var_to_attr_name(setting)
             current_settings = get_current_settings()
             # get value from settings object
             settings_value = getattr(current_settings, field_name)
 
             if isinstance(settings_value, pydantic.SecretStr):
                 settings_value = settings_value.get_secret_value()
-            if var == "PREFECT_CLIENT_RETRY_EXTRA_CODES":
+            if setting == "PREFECT_CLIENT_RETRY_EXTRA_CODES":
                 assert settings_value == {int(value)}
-                assert getattr(prefect.settings, var).value() == {int(value)}
+                assert getattr(prefect.settings, setting).value() == {int(value)}
                 assert current_settings.to_environment_variables(exclude_unset=True)[
-                    var
+                    setting
                 ] == str([int(value)])
 
-            elif var == "PREFECT_LOGGING_EXTRA_LOGGERS":
+            elif setting == "PREFECT_LOGGING_EXTRA_LOGGERS":
                 assert settings_value == [value]
-                assert getattr(prefect.settings, var).value() == [value]
+                assert getattr(prefect.settings, setting).value() == [value]
                 assert current_settings.to_environment_variables(exclude_unset=True)[
-                    var
+                    setting
                 ] == str([value])
             else:
                 assert settings_value == value
                 # get value from legacy setting object
-                assert getattr(prefect.settings, var).value() == value
+                assert getattr(prefect.settings, setting).value() == value
                 # ensure the value gets added to the environment variables
                 assert current_settings.to_environment_variables(exclude_unset=True)[
-                    var
+                    setting
                 ] == str(to_jsonable_python(value))
+
+    def test_set_via_env_var(self, setting_and_value, monkeypatch):
+        setting, value = setting_and_value
+
+        if setting == "PREFECT_TEST_SETTING":
+            monkeypatch.setenv("PREFECT_TEST_MODE", "True")
+
+        # mock set the env var
+        monkeypatch.setenv(setting, str(value))
+
+        self.check_setting_value(setting, value)
+
+    def test_set_via_profile(
+        self, temporary_profiles_path, setting_and_value, monkeypatch
+    ):
+        setting, value = setting_and_value
+        if setting == "PREFECT_PROFILES_PATH":
+            pytest.skip("Profiles path cannot be set via a profile")
+        if setting == "PREFECT_TEST_SETTING":
+            # PREFECT_TEST_MODE is used to set PREFECT_TEST_SETTING which messes
+            # with profile loading
+            pytest.skip("Can only set PREFECT_TEST_SETTING when in test mode")
+
+        with open(temporary_profiles_path, "w") as f:
+            toml.dump(
+                {
+                    "active": "test",
+                    "profiles": {"test": {setting: to_jsonable_python(value)}},
+                },
+                f,
+            )
+
+        self.check_setting_value(setting, value)
+
+    def test_set_via_dot_env_file(
+        self, setting_and_value, temporary_env_file, monkeypatch
+    ):
+        setting, value = setting_and_value
+        if setting == "PREFECT_PROFILES_PATH":
+            monkeypatch.delenv("PREFECT_PROFILES_PATH", raising=False)
+        if setting == "PREFECT_TEST_SETTING":
+            monkeypatch.setenv("PREFECT_TEST_MODE", "True")
+
+        temporary_env_file(f"{setting}={value}")
+
+        self.check_setting_value(setting, value)
