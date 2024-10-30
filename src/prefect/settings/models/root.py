@@ -13,7 +13,11 @@ from urllib.parse import urlparse
 from pydantic import BeforeValidator, Field, SecretStr, model_validator
 from typing_extensions import Self
 
-from prefect.settings.base import PrefectBaseSettings, PrefectSettingsConfigDict
+from prefect.settings.base import (
+    COMMON_CONFIG_DICT,
+    PrefectBaseSettings,
+    PrefectSettingsConfigDict,
+)
 from prefect.settings.models.tasks import TasksSettings
 from prefect.settings.models.testing import TestingSettings
 from prefect.settings.models.worker import WorkerSettings
@@ -24,6 +28,7 @@ from .cli import CLISettings
 from .client import ClientSettings
 from .cloud import CloudSettings
 from .deployments import DeploymentsSettings
+from .experiments import ExperimentsSettings
 from .flows import FlowsSettings
 from .internal import InternalSettings
 from .logging import LoggingSettings
@@ -43,10 +48,8 @@ class Settings(PrefectBaseSettings):
     """
 
     model_config = PrefectSettingsConfigDict(
-        env_file=".env",
+        **COMMON_CONFIG_DICT,
         env_prefix="PREFECT_",
-        extra="ignore",
-        toml_file="prefect.toml",
     )
 
     home: Annotated[Path, BeforeValidator(lambda x: Path(x).expanduser())] = Field(
@@ -87,6 +90,11 @@ class Settings(PrefectBaseSettings):
     deployments: DeploymentsSettings = Field(
         default_factory=DeploymentsSettings,
         description="Settings for configuring deployments defaults",
+    )
+
+    experiments: ExperimentsSettings = Field(
+        default_factory=ExperimentsSettings,
+        description="Settings for controlling experimental features",
     )
 
     flows: FlowsSettings = Field(
