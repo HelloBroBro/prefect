@@ -12,19 +12,21 @@ import { Icon } from "@/components/ui/icons";
 type Props = {
 	onClick: () => void;
 };
-export const GlobalConcurrencyLimitEmptyState = ({ onClick }: Props) => (
+export const TaskRunConcurrencyLimitEmptyState = ({ onClick }: Props) => (
 	<EmptyState>
-		<EmptyStateIcon id="AlignVerticalJustifyStart" />
-		<EmptyStateTitle>Add a concurrency limit</EmptyStateTitle>
+		<EmptyStateIcon id="CircleArrowOutUpRight" />
+		<EmptyStateTitle>
+			Add a concurrency limit for your task runs
+		</EmptyStateTitle>
 		<EmptyStateDescription>
-			Global concurrency limits can be applied to flow runs, task runs and any
-			operation where you want to control concurrency.
+			Creating a limit allows you to limit the number of tasks running
+			simultaneously with a given tag.
 		</EmptyStateDescription>
 		<EmptyStateActions>
 			<Button onClick={onClick}>
 				Add Concurrency Limit <Icon id="Plus" className="h-4 w-4 ml-2" />
 			</Button>
-			<DocsLink id="global-concurrency-guide" />
+			<DocsLink id="task-concurrency-guide" />
 		</EmptyStateActions>
 	</EmptyState>
 );

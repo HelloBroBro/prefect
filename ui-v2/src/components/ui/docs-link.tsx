@@ -1,10 +1,12 @@
-import { ExternalLinkIcon } from "lucide-react";
+import { Icon } from "./icons";
 
 import { Button } from "./button";
 
 const DOCS_LINKS = {
 	"global-concurrency-guide":
 		"https://docs.prefect.io/v3/develop/global-concurrency-limits",
+	"task-concurrency-guide":
+		"https://docs.prefect.io/v3/develop/task-run-limits",
 	"variables-guide": "https://docs.prefect.io/latest/guides/variables/",
 } as const;
 
@@ -18,7 +20,7 @@ export const DocsLink = ({ id }: Props): JSX.Element => {
 	return (
 		<a href={DOCS_LINKS[id]} target="_blank" rel="noreferrer">
 			<Button variant="outline">
-				View Docs <ExternalLinkIcon className="h-4 w-4 ml-2" />
+				View Docs <Icon id="ExternalLink" className="h-4 w-4 ml-2" />
 			</Button>
 		</a>
 	);
